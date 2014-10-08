@@ -153,14 +153,17 @@ class osBuilderExporter:
     @log_step(LOG)
     def get_security_groups(self, instance=None, **kwargs):
         instance = instance if instance else self.instance
-        if not instance.security_groups:
+        try:
+            if instance.security_groups:
+                self.data['security_groups'] = [security_group['name'] for security_group in instance.security_groups]
+        except AttributeError:
             sglist = []
             for sec_group in self.nova_client.servers.list_security_group(instance.id):
                 sgdict = {}
                 sgdict['name'] = sec_group.name
                 sglist.append(sgdict)
             instance.security_groups = sglist
-        self.data['security_groups'] = [security_group['name'] for security_group in instance.security_groups]
+            self.data['security_groups'] = [security_group['name'] for security_group in instance.security_groups]
         return self
 
     @inspect_func
