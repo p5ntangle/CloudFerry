@@ -372,6 +372,66 @@ class osBuilderImporter:
         self.data_for_instance["image"] = self.glance_client.images.get(new_image_id)
         return self
 
+    @inspect_func
+    @log_step(LOG)
+    def merge_and_copy_to_ceph(self, data=None, instance=None, data_for_instance=None, **kwargs):
+
+        """ Merging diff file and base image of instance (ceph case)"""
+        data = data if data else self.data
+        data_for_instance = data_for_instance if data_for_instance else self.data_for_instance
+        instance = instance if instance else self.instance
+        diff_disk_path = self.__diff_copy(data,
+                                          data_for_instance,
+                                          self.config['host'],
+                                          dest_path=self.config['temp'])
+        if self.__check_glance_image_status(self,data_for_instance):
+            self.__download_image_from_glance(data_for_instance, diff_disk_path)
+        else:
+            __backing_copy(data,
+                           data_for_instance,
+                           self.config['host'],
+                           diff_disk_path,
+                           dest_path=self.config['temp'] )
+        self.__diff_rebase("%s/baseimage" % diff_disk_path, "%s/disk" % diff_disk_path)
+        self.__rebase_and_transfer_file_to_ceph_direct(instance, diff_disk_path, self.config['host'])
+
+        return self
+
+    def __check_glance_image_status(self,data_for_instance):
+        baseimage_id = data_for_instance["image"].id
+        image_data = self.glance_client.images.get(baseimage_id)
+        if image_data[status] == 'deleted':
+            return False
+        else:
+            return True
+
+
+    @log_step(LOG)
+    def __backing_copy(self, data, data_for_instance, dest_host, diff_disk_path, dest_path="root"):
+        """
+        SOM
+        The expectation is that this will be run after ___diff_copy and that the
+        directory exists
+        :param data:
+        :param data_for_instance:
+        :param dest_host:
+        :param dest_path:
+        :return:
+        """
+        dest_path = dest_path + "/" + data_for_instance["image"].id
+        with settings(host_string=self.config_from['host']):
+            with forward_agent(env.key_filename):
+                out = run(("ssh -oStrictHostKeyChecking=no %s 'qemu-img info %s'") %
+                            data['disk']['host'], diff_disk_path )
+                source_out = out.split()
+                backing_file = source_out[source_out.index('backing') + 2]
+        with settings(host_string=self.config_from['host']):
+            with forward_agent(env.key_filename):
+                run(("ssh -oStrictHostKeyChecking=no %s 'dd bs=1M if=%s' | " +
+                     "ssh -oStrictHostKeyChecking=no %s 'dd bs=1M of=%s/baseimage'") %
+                    (data['disk']['host'], backing_file, dest_host, dest_path))
+
+
     @log_step(LOG)
     def __diff_copy(self, data, data_for_instance, dest_host, dest_path="root"):
         dest_path = dest_path + "/" + data_for_instance["image"].id
@@ -501,6 +561,22 @@ class osBuilderImporter:
                              "| ssh -oStrictHostKeyChecking=no -p %s localhost 'gunzip | dd bs=1M of=%s'") %
                             (disk_host, self.config['transfer_file']['level_compression'],
                              source_disk, ssh_port, dest_disk))
+
+    @log_step(LOG)
+    def __rebase_and_transfer_file_to_ceph_direct(self, instance, source_disk, dest_host):
+        """This requires that  "rdb default format = 2" is set in the ceph.conf file"""
+        #NOTE(SOM) working
+        LOG.debug("    copy file to destination ceph")
+        with settings(host_string=dest_host):
+            with forward_agent(env.key_filename):
+                run("rbd rm -p compute %s_disk" % instance.id)
+        with settings(host_string=dest_host):
+            with forward_agent(env.key_filename):
+                    run(("qemu-img convert -p -O raw %s/disk rbd:compute/%s_disk")
+                        % (source_disk,
+                           instance.id))
+            run("rm -rf %s" % source_disk)
+
 
     @log_step(LOG)
     def __transfer_remote_file_to_ceph(self, instance, disk_host, source_disk, dest_host, is_source_ceph):

@@ -449,6 +449,7 @@ class ResourceImporter(osCommon.osCommon):
 
     def __delete_redundant_floatingips(self, src_floats):
         existing_floatingips = self.network_client.list_floatingips()['floatingips']
+        print "SOM %s" % existing_floatingips
         src_floatingips = [src_float['floating_ip_address'] for src_float in src_floats]
         for floatingip in existing_floatingips:
             if floatingip['floating_ip_address'] not in src_floatingips:
