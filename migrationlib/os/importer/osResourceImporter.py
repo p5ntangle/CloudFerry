@@ -457,9 +457,12 @@ class ResourceImporter(osCommon.osCommon):
                         self.network_client.delete_floatingip(floatingip['id'])
         return self
 
-    def __dest_exisiting_floatingips(self):
+     def __dest_exisiting_floatingips(self):
         existing_floatingips = self.network_client.list_floatingips()['floatingips']
-        return existing_floatingips
+        out = []
+        for floatingip in existing_floatingips:
+            out.append(floatingip['floating_ip_address'])
+        return out
 
     def __get_existing_resource_id_by_name(self, existing_resources, src_resource_name, tenant_id):
         for resource in [resource for resource in existing_resources if resource['name'] == src_resource_name]:
