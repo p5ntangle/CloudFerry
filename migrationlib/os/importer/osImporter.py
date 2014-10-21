@@ -15,8 +15,7 @@
 from migrationlib.os import osCommon
 from osBuilderImporter import osBuilderImporter
 from utils import ChecksumImageInvalid, ISCSI, CEPH, BOOT_FROM_IMAGE, \
-    BOOT_FROM_VOLUME, ANY, NO, EPHEMERAL, REMOTE_FILE, YES, log_step, get_log
-
+    BOOT_FROM_VOLUME, CONVERT_TO_VOLUME, ANY, NO, EPHEMERAL, REMOTE_FILE, YES, log_step, get_log
 
 LOG = get_log(__name__)
 
@@ -58,7 +57,6 @@ class Importer(osCommon.osCommon):
 
     @log_step(LOG)
     def upload(self, data):
-
         """
         The main method for data uploading from source cloud
         """
@@ -83,17 +81,20 @@ class Importer(osCommon.osCommon):
             MultiCaseAlgorithm(BOOT_FROM_IMAGE, ANY, CEPH, YES): self.__upload_ephemeral_on_ceph,
             MultiCaseAlgorithm(BOOT_FROM_IMAGE, ANY, CEPH, NO): self.__upload_ephemeral_on_ceph_without_disk,
             MultiCaseAlgorithm(BOOT_FROM_VOLUME, ANY, ANY, NO): self.__upload_boot_volume,
-            MultiCaseAlgorithm(BOOT_FROM_VOLUME, ANY, ANY, YES): self.__upload_boot_volume_with_ephem_disk
+            MultiCaseAlgorithm(BOOT_FROM_VOLUME, ANY, ANY, YES): self.__upload_boot_volume_with_ephem_disk,
+            MultiCaseAlgorithm(CONVERT_TO_VOLUME, CEPH, REMOTE_FILE, NO): self.__upload_ceph_backend_direct
         }[self.__detect_algorithm_upload(self.config, data)]
 
     @log_step(LOG)
     def __detect_algorithm_upload(self, config, data):
-        mode_boot = self.__detect_mode_boot(data)
+        mode_boot = self.__detect_mode_boot(data) if not config['transfer_file']['no_glance'] else CONVERT_TO_VOLUME
         ephemeral = self.__is_ephemeral(data)
         backend_ephemeral = self.__detect_backend_ephemeral(data)
         backend_cinder = self.__detect_backend_cinder(config) if backend_ephemeral != CEPH else ANY
         if mode_boot == BOOT_FROM_VOLUME:
             return MultiCaseAlgorithm(BOOT_FROM_VOLUME, ANY, ANY, ephemeral)
+        elif mode_boot == CONVERT_TO_VOLUME:
+            return MultiCaseAlgorithm(CONVERT_TO_VOLUME, CEPH, REMOTE_FILE, NO)
         else:
             return MultiCaseAlgorithm(BOOT_FROM_IMAGE, backend_cinder, backend_ephemeral, ephemeral)
 
@@ -217,6 +218,20 @@ class Importer(osCommon.osCommon):
         return builderImporter\
             .prepare_for_creating_new_instance()\
             .create_instance()\
+            .import_volumes()\
+            .assigning_floating()
+
+    @log_step(LOG)
+    def __upload_ceph_backend_direct(self, builderImporter):
+        """
+        Algorithm of migrationlib for iscsi-like destination backend for cinder and ephemeral drive
+        """
+        return builderImporter\
+            .prepare_for_creating_new_instance()\
+            .create_instance()\
+            .stop_instance()\
+            .merge_and_copy_to_ceph()\
+            .start_instance()\
             .import_volumes()\
             .assigning_floating()
 

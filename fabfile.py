@@ -76,7 +76,21 @@ def migrate(name_config, name_instance=None, tenant_id=None, mode=DEFAULT):
     scheduler.addTask(SuperTaskMigrateInstances())
     scheduler.run()
 
+@task
+def test(name_config, name_instance=None, mode=DEFAULT):
+   rollback_status = mode
+   namespace = Namespace({'__name_config__': name_config,
+                           'name_instance': name_instance,
+                           '__rollback_status__': rollback_status if not (rollback_status == DEFAULT) else RESTART})
 
+   scheduler = Scheduler(namespace)
+   scheduler.addTask(TaskInitMigrate())
+   #scheduler.addTask(SuperTaskExportResource())
+   #scheduler.addTask(SuperTaskImportResource())
+   scheduler.addTask(TaskInitDirectory())
+   scheduler.addTask(SuperTaskMigrateInstances())
+   scheduler.run()
+    
 @task
 def clean_dest_cloud(name_config, delete_image=False):
     LOG.info("Init config migrate")

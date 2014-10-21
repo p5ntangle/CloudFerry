@@ -91,7 +91,6 @@ class osCommon(object):
     def get_keystone_client(params):
 
         """ Getting keystone client """
-
         keystoneClientForToken = keystoneClient.Client(username=params["user"],
                                                        password=params["password"],
                                                        tenant_name=params["tenant"],
