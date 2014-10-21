@@ -303,9 +303,10 @@ class ResourceImporter(osCommon.osCommon):
             #NOTE(SOM) may want to add something here to check for rules in the config.
             self.__upload_neutron_networks(data['nova']['networks'])
             self.__upload_neutron_subnets(data['nova']['subnets'])
+            dst_existing_floats = self.__dest_exisiting_floatingips()
             self.__allocating_floatingips(data['nova']['floatingips'])
             self.__recreate_floatingips(data['nova']['floatingips'])
-            self.__delete_redundant_floatingips(data['nova']['floatingips'])
+            self.__delete_redundant_floatingips(data['nova']['floatingips'], dst_existing_floats)
         return self
 
     def __network_resources_mappings(self, network_resource_info):
@@ -447,14 +448,18 @@ class ResourceImporter(osCommon.osCommon):
                                                                                   'tenant_id': tenant_id}})
         return self
 
-    def __delete_redundant_floatingips(self, src_floats):
+    def __delete_redundant_floatingips(self, src_floats, dst_existing_floats):
         existing_floatingips = self.network_client.list_floatingips()['floatingips']
-        print "SOM %s" % existing_floatingips
         src_floatingips = [src_float['floating_ip_address'] for src_float in src_floats]
         for floatingip in existing_floatingips:
             if floatingip['floating_ip_address'] not in src_floatingips:
-                self.network_client.delete_floatingip(floatingip['id'])
+                    if floatingip['floating_ip_address'] not in dst_existing_floats:
+                        self.network_client.delete_floatingip(floatingip['id'])
         return self
+
+    def __dest_exisiting_floatingips(self):
+        existing_floatingips = self.network_client.list_floatingips()['floatingips']
+        return existing_floatingips
 
     def __get_existing_resource_id_by_name(self, existing_resources, src_resource_name, tenant_id):
         for resource in [resource for resource in existing_resources if resource['name'] == src_resource_name]:
